@@ -17,8 +17,8 @@ plt.rcParams['font.size'] = 12
 ############# CHS BSEM model analysis ###############
 
 
-os.chdir("")
-
+#os.chdir("")
+print(os.getcwd())
 data = pd.read_csv("https://raw.githubusercontent.com/ebrlab/CHS_analysis_GRM/refs/heads/main/data/chs_data_clean.csv")
 
 #data = data.sort_values('item')
@@ -31,7 +31,7 @@ for s in range(len(data)):
         scores.append(data.score[s])
 
 data['score'] = scores
-    
+
 
 subjects = data.subject.unique() #subjects id
 items = data.item.unique() #items names
@@ -51,31 +51,36 @@ S = len(data.subject.unique()) #Number of participants/subjects
 
 mat_dot = pm.math.dot
 
-
 with pm.Model() as mod:
     
-    #delta = pm.HalfNormal('delta', sigma=0.5, shape=(I), testval=np.ones(I)) #discrimination parameter
-    delta = pm.Lognormal('delta', mu=0, sigma=0.5, shape=(I), testval=np.ones(I)) #discrimination parameter
+    # Discrimination parameter (log-normal)
+    delta = pm.Lognormal('delta', mu=0, sigma=0.5, shape=(I), initval=np.ones(I)) 
 
-    psi = pm.Normal('psi', mu=0, sigma=0.5, shape=S, testval=np.ones(S)) #participant/subject parameter
+    # Participant/subject parameter (normal)
+    psi = pm.Normal('psi', mu=0, sigma=0.5, shape=S, initval=np.ones(S)) 
     
+    # Cutpoints/difficulty parameter
     ksigma = pm.HalfNormal('ksigma', 0.5)
-    kmu = pm.Normal('kmu', [-4,-2,2,4], 0.5, shape=C-1)
-    kappa = pm.Normal('kappa', mu=kmu, sigma=ksigma, transform=pm.distributions.transforms.ordered,
-                      shape=(I,C-1), testval=np.arange(C-1)) #cutpoints/difficulty parameter 
+    kmu = pm.Normal('kmu', mu=[-4, -2, 2, 4], sigma=0.5, shape=(C-1))
     
-    eta = delta[item_i]*psi[sub_s] #estimate
+    # Ensure initval has the correct shape (2D: I x (C-1))
+    kappa = pm.Normal('kappa', mu=kmu, sigma=ksigma, 
+                      transform=pm.distributions.transforms.ordered,
+                      shape=(I, C-1), initval=np.tile(np.arange(C-1), (I, 1)))
     
+    # Estimate eta
+    eta = delta[item_i] * psi[sub_s]
+    
+    # Ordered logistic regression
     y = pm.OrderedLogistic('y', cutpoints=kappa[item_i], eta=eta, observed=responses)
 
-
 ######### Prio Predictive Checks ################    
-os.chdir("/prior_preds/")
+os.chdir("prior_preds/")
 
 with mod:
     preds = pm.sample_prior_predictive(samples=1000,
-        var_names=["psi", "kappa", "delta"])
-
+        var_names=["psi", "kappa", "delta"], return_inferencedata=False)
+"""
 def pordlog(a):
     pa = expit(a)
     p_cum = np.concatenate(([0.], pa, [1.]))
@@ -124,19 +129,21 @@ for i in tqdm(range(I)):
     plt.gca().spines['right'].set_visible(False)
     plt.savefig(items[i]+'_prob.png', dpi=300)
     plt.close()
-    
+"""
     
 ########### Sample Model ################
-os.chdir("")
+os.chdir("../")
 
 tracedir = "/trace/"
-with mod:
-    trace = pm.sample(2000, tune=2000, chains=4, cores=16, target_accept=0.95)
-    #trace = pm.load_trace(tracedir)
-   
-pm.backends.ndarray.save_trace(trace, directory=tracedir, overwrite=True)
- 
 
+
+with mod:
+    trace = pm.sample(nuts_sampler="numpyro",draws=2000, tune=2000, chains=4, cores=8, target_accept=0.95, return_inferencedata=False)
+
+
+"""
+az.to_netcdf(trace, "tracefile.nc")
+ 
 pm.model_to_graphviz(mod).render('mod_graph')
 
 az.plot_energy(trace)
@@ -145,15 +152,23 @@ plt.close()
 
 summ = az.summary(trace, hdi_prob=0.9, round_to=4)
 summ.to_csv('summary.csv')
+"""
 
 
+"""
 with mod:
-    ppc = pm.sample_posterior_predictive(trace)
+    ppc = pm.sample_posterior_predictive(trace, return_inferencedata=False)
 fig, ax = plt.subplots()
 samps = np.random.randint(0,1000,100)
 preds = np.array(ppc['y'])
-for s in samps[:-1]:
-    ax = sns.kdeplot(preds[s], gridsize=1000, color=(0.2, 0.6, 0.5, 0.2))
+print(ppc['y'])
+print(type(preds))
+"""
+
+
+"""
+#for s in samps[:-1]:
+#    ax = sns.kdeplot(preds[s], gridsize=1000, color=(0.2, 0.6, 0.5, 0.2))
 sns.kdeplot(preds[samps[-1]], gridsize=1000, color=(0.2, 0.6, 0.5, 0.3), label='Predicted Responses')
 sns.kdeplot(responses, gridsize=1000, color='darkviolet', label='Observed Responses')
 plt.xlabel('Ratings (scores)')
@@ -165,11 +180,10 @@ plt.tight_layout()
 plt.savefig('ppc.png',dpi=300)
 plt.close()
 plt.close()
+"""
 
-
-######### Posterior probabilities ################    
-os.chdir("/response_prob/")
-
+######### Posterior probabilities ################ 
+"""
 def pordlog(a):
     pa = expit(a)
     p_cum = np.concatenate(([0.], pa, [1.]))
@@ -221,7 +235,7 @@ for i in tqdm(range(I)):
 
 
 ######### Item responses ################    
-os.chdir("/item_characteristics/")
+os.chdir("item_characteristics/")
 
 test_char_mean = []
 test_char_h5 = []
@@ -301,7 +315,7 @@ plt.close()
 
 
 ######### Item Information ################    
-os.chdir("/item_information/")
+os.chdir("item_information/")
 
 test_info_mean = []
 test_info_h5 = []
@@ -386,7 +400,7 @@ plt.close()
 
 
 
-os.chdir("")
+#os.chdir("")
 from matplotlib.ticker import FormatStrFormatter
 
 # Reliability π=1/(1+1/I).
@@ -419,11 +433,9 @@ for c in range(C):
 plt.title('Test Reliability per Score')
 plt.savefig('reliability_score_posteriors.png', dpi=300)
 
-
-
-
 rho = 1/(1 + ((trace['delta']**2).sum(axis=1))**-1)
 az.plot_posterior(rho, hdi_prob=0.9, kind='hist', color='m', round_to=3)
 plt.title('Reliability ($ρ$)')
 plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 plt.savefig('reliability_posterior.png', dpi=300)
+"""
