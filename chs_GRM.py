@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import pandas as pd
-import pymc3 as pm
+import pymc as pm
 import numpy as np
 from scipy.special import expit
 import arviz as az
@@ -19,7 +19,7 @@ plt.rcParams['font.size'] = 12
 
 os.chdir("")
 
-data = pd.read_csv("/data/chs_data_clean.csv")
+data = pd.read_csv("https://raw.githubusercontent.com/ebrlab/CHS_analysis_GRM/refs/heads/main/data/chs_data_clean.csv")
 
 #data = data.sort_values('item')
 
@@ -49,7 +49,7 @@ I = len(data.item.unique()) #Number of items
 D = len(data.dimension.unique()) #Number of participants/subjects
 S = len(data.subject.unique()) #Number of participants/subjects
 
-mat_dot = pm.math.matrix_dot
+mat_dot = pm.math.dot
 
 
 with pm.Model() as mod:
