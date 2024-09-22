@@ -7,6 +7,9 @@ import arviz as az
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+from utils import pordlog
+
+
 
 plt.rcParams['font.family'] = "DeJavu Serif"
 plt.rcParams['font.serif'] = "Cambria Math"
@@ -127,7 +130,7 @@ tracedir = "/trace/"
 
 with mod:
     trace = pm.sample(nuts_sampler="numpyro",
-                      draws=1000, tune=1000, 
+                      draws=2000, tune=2000, 
                       chains=4, cores=8, target_accept=0.95)
 """
 az.to_netcdf(trace, "tracefile.nc")
