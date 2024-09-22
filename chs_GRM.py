@@ -3,11 +3,12 @@ import os
 import pandas as pd
 import pymc as pm
 import numpy as np
-from scipy.special import expit
 import arviz as az
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+from utils import pordlog
+from plots import ppc_plot 
 
 
 plt.rcParams['font.family'] = "DeJavu Serif"
@@ -16,13 +17,8 @@ plt.rcParams['font.size'] = 12
 
 ############# CHS BSEM model analysis ###############
 
-
-#os.chdir("")
-print(os.getcwd())
 data = pd.read_csv("https://raw.githubusercontent.com/ebrlab/CHS_analysis_GRM/refs/heads/main/data/chs_data_clean.csv")
-
-#data = data.sort_values('item')
-
+data = data.sort_values('item')
 scores = []
 for s in range(len(data)):
     if data.qdirection[s] == 'reversed':
@@ -74,17 +70,12 @@ with pm.Model() as mod:
     # Ordered logistic regression
     y = pm.OrderedLogistic('y', cutpoints=kappa[item_i], eta=eta, observed=responses)
 
-######### Prio Predictive Checks ################    
+######### Prior Predictive Checks ################    
 os.chdir("prior_preds/")
 
 with mod:
     preds = pm.sample_prior_predictive(samples=1000,
-        var_names=["psi", "kappa", "delta"], return_inferencedata=False)
-"""
-def pordlog(a):
-    pa = expit(a)
-    p_cum = np.concatenate(([0.], pa, [1.]))
-    return p_cum[1:] - p_cum[:-1]
+        var_names=["psi", "kappa", "delta"])
 
 for i in tqdm(range(I)):
     num = items[i].split('_')[1]
@@ -106,8 +97,11 @@ for i in tqdm(range(I)):
         color1 = 'goldenrod'
         color2 = 'gold'
         d = 2
-    cuts = preds['kappa'][:,i].T
-    prob = cuts - preds['psi'].mean(axis=1)*preds['delta'][:,i]
+
+    # Access prior predictive samples from trace
+    cuts = preds.prior['kappa'].sel(kappa_dim_0=i).values.squeeze().T
+    prob = cuts - preds.prior["psi"].mean(dim="psi_dim_0").values.squeeze() * preds.prior["delta"].sel(delta_dim_0=i).values.squeeze()
+
     posts = np.array([pordlog(prob.T[s]) for s in range(len(prob.T))]).T
     prop = data[data.item==items[i]]
     prop = [len(prop[prop.score==s])/len(prop) for s in [0,1,2,3,4]]
@@ -129,18 +123,15 @@ for i in tqdm(range(I)):
     plt.gca().spines['right'].set_visible(False)
     plt.savefig(items[i]+'_prob.png', dpi=300)
     plt.close()
-"""
     
 ########### Sample Model ################
-os.chdir("../")
 
 tracedir = "/trace/"
 
-
 with mod:
-    trace = pm.sample(nuts_sampler="numpyro",draws=2000, tune=2000, chains=4, cores=8, target_accept=0.95, return_inferencedata=False)
-
-
+    trace = pm.sample(nuts_sampler="numpyro",
+                      draws=1000, tune=1000, 
+                      chains=4, cores=8, target_accept=0.95)
 """
 az.to_netcdf(trace, "tracefile.nc")
  
@@ -154,22 +145,17 @@ summ = az.summary(trace, hdi_prob=0.9, round_to=4)
 summ.to_csv('summary.csv')
 """
 
-
-"""
 with mod:
-    ppc = pm.sample_posterior_predictive(trace, return_inferencedata=False)
+    ppc = pm.sample_posterior_predictive(trace)
+
+
 fig, ax = plt.subplots()
-samps = np.random.randint(0,1000,100)
-preds = np.array(ppc['y'])
-print(ppc['y'])
-print(type(preds))
-"""
+samps = np.random.randint(0,7999,100)
+preds = ppc.posterior_predictive['y'].stack(sample=("chain", "draw")).values
 
-
-"""
-#for s in samps[:-1]:
-#    ax = sns.kdeplot(preds[s], gridsize=1000, color=(0.2, 0.6, 0.5, 0.2))
-sns.kdeplot(preds[samps[-1]], gridsize=1000, color=(0.2, 0.6, 0.5, 0.3), label='Predicted Responses')
+for s in samps[:-1]:
+    ax = sns.kdeplot(preds[:,s], gridsize=1000, color=(0.2, 0.6, 0.5, 0.2))
+sns.kdeplot(preds[:,samps[-1]], gridsize=1000, color=(0.2, 0.6, 0.5, 0.3), label='Predicted Responses')
 sns.kdeplot(responses, gridsize=1000, color='darkviolet', label='Observed Responses')
 plt.xlabel('Ratings (scores)')
 plt.title('Posterior Predictive Checks')
@@ -180,18 +166,15 @@ plt.tight_layout()
 plt.savefig('ppc.png',dpi=300)
 plt.close()
 plt.close()
-"""
+
 
 ######### Posterior probabilities ################ 
-"""
-def pordlog(a):
-    pa = expit(a)
-    p_cum = np.concatenate(([0.], pa, [1.]))
-    return p_cum[1:] - p_cum[:-1]
+os.chdir("../response_prob/")
 
 for i in tqdm(range(I)):
     num = items[i].split('_')[1]
-    num = num.replace('q','')
+    num = num.replace('q', '')
+        
     if 'q'+str(i) == 'q'+str(num):
         sco = data[data.item==items[i]]['score'].values
     if 'blocking' in items[i]:
@@ -209,8 +192,10 @@ for i in tqdm(range(I)):
         color1 = 'goldenrod'
         color2 = 'gold'
         d = 2
-    cuts = trace['kappa'][:,i].T
-    prob = cuts - trace['psi'].mean(axis=1)*trace['delta'][:,i]
+    # Access posterior predictive samples from trace
+    cuts = trace.posterior['kappa'].sel( kappa_dim_0=i).stack(samples=("chain", "draw")).values
+    prob = cuts - trace.posterior["psi"].mean(dim="psi_dim_0").stack(samples=("chain", "draw")).values * trace.posterior["delta"].sel(delta_dim_0=i).stack(samples=("chain", "draw")).values
+
     posts = np.array([pordlog(prob.T[s]) for s in range(len(prob.T))]).T
     prop = data[data.item==items[i]]
     prop = [len(prop[prop.score==s])/len(prop) for s in [0,1,2,3,4]]
@@ -235,14 +220,15 @@ for i in tqdm(range(I)):
 
 
 ######### Item responses ################    
-os.chdir("item_characteristics/")
+os.chdir("../item_characteristics/")
 
 test_char_mean = []
 test_char_h5 = []
 test_char_h95 = []
 colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
 lines = ['dotted', 'dashed', 'solid', 'dashdot', (0, (3, 1, 1, 1, 1, 1))]
-trait = [trace['psi'][:,s].mean() for s in range(S)]
+trait = [trace.posterior["psi"][:,:,s].mean().values for s in range(S)]
+
 for i in tqdm(range(I)):
     if 'blocking' in items[i]:
         d = 0
@@ -257,11 +243,11 @@ for i in tqdm(range(I)):
     num = items[i].split('_')[1]
     num = num.replace('q','')
     direction = data[data.item==items[i]].qdirection.values[0]
-    cuts = trace['kappa'][:,i].T
+    cuts = trace.posterior["kappa"].stack(samples=("chain", "draw"))[i,:,:].values
     if direction == 'forward':
-        prob = np.array([cuts - trace['psi'][:,s]*trace['delta'][:,i] for s in range(S)])
-    if direction == 'reversed':
-        prob = np.array([cuts + trace['psi'][:,s]*trace['delta'][:,i] for s in range(S)])
+        prob = np.array([cuts - trace.posterior["psi"].stack(samples=("chain", "draw"))[s,:].values*trace.posterior["delta"].stack(samples=("chain", "draw"))[i,:].values for s in range(S)])
+    if direction == 'reversed': 
+        prob = np.array([cuts - trace.posterior["psi"].stack(samples=("chain", "draw"))[s,:].values*trace.posterior["delta"].stack(samples=("chain", "draw"))[i,:].values for s in range(S)])
     prob = np.array([[pordlog(prob[s].T[p]) for p in range(len(prob.T))] for s in range(S)])
     chars = []
     h5s = []
@@ -294,7 +280,7 @@ for i in tqdm(range(I)):
 tm = np.array(test_char_mean).sum(axis=0)
 th5 = np.array(test_char_h5).sum(axis=0)
 th95 = np.array(test_char_h95).sum(axis=0)
-trait = [trace['psi'][:,s].mean() for s in range(S)]
+trait = [trace.posterior["psi"][:,:,s].mean().values for s in range(S)]
 for c in range(C):
     colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
     char = np.array([tm[c][s] for s in range(S)])
@@ -313,16 +299,15 @@ for c in range(C):
 plt.savefig("test_char.png", dpi=300)
 plt.close()
 
-
 ######### Item Information ################    
-os.chdir("item_information/")
+os.chdir("../item_information/")
 
 test_info_mean = []
 test_info_h5 = []
 test_info_h95 = []
 colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
 lines = ['dotted', 'dashed', 'solid', 'dashdot', (0, (3, 1, 1, 1, 1, 1))]
-trait = [trace['psi'][:,s].mean() for s in range(S)]
+trait = [trace.posterior["psi"][:,:,s].mean().values for s in range(S)]
 for i in tqdm(range(I)):
     if 'blocking' in items[i]:
         d = 0
@@ -331,11 +316,11 @@ for i in tqdm(range(I)):
     if 'inspecting' in items[i]:
         d = 2
     direction = data[data.item==items[i]].qdirection.values[0]
-    cuts = trace['kappa'][:,i].T
+    cuts = trace.posterior["kappa"].stack(samples=("chain", "draw"))[i,:,:].values
     if direction == 'forward':
-        prob = np.array([cuts - trace['psi'][:,s]*trace['delta'][:,i] for s in range(S)])
-    if direction == 'reversed':
-        prob = np.array([cuts + trace['psi'][:,s]*trace['delta'][:,i] for s in range(S)])
+        prob = np.array([cuts - trace.posterior["psi"].stack(samples=("chain", "draw"))[s,:].values*trace.posterior["delta"].stack(samples=("chain", "draw"))[i,:].values for s in range(S)])
+    if direction == 'reversed': 
+        prob = np.array([cuts - trace.posterior["psi"].stack(samples=("chain", "draw"))[s,:].values*trace.posterior["delta"].stack(samples=("chain", "draw"))[i,:].values for s in range(S)])
     prob = np.array([[pordlog(prob[s].T[p]) for p in range(len(prob.T))] for s in range(S)])
     question = data[data.item==items[i]].question.values[0].replace('#', '')        
     name1 = 'Item ' + items[i].split('_')[1].replace('q', '')
@@ -348,7 +333,7 @@ for i in tqdm(range(I)):
     h95s = []
     for c in range(C):
         colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
-        probs = np.array([(prob.T[c][:,s]*(1-prob.T[c][:,s]))*(trace['delta'][:,i]**2) for s in range(S)])
+        probs = np.array([(prob.T[c][:,s]*(1-prob.T[c][:,s]))*(trace.posterior["delta"].stack(samples=("chain", "draw"))[i,:].values**2) for s in range(S)])
         info = np.array([probs[s].mean() for s in range(S)])
         h5 = np.array([az.hdi(probs[s], hdi_prob=0.9)[0] for s in range(S)])
         h95 = np.array([az.hdi(probs[s], hdi_prob=0.9)[1] for s in range(S)])
@@ -372,11 +357,12 @@ for i in tqdm(range(I)):
     test_info_h5.append(np.array(h5s))
     test_info_h95.append(np.array(h95s))
 
+
 ###Plot test infos
 tm = np.array(test_info_mean).sum(axis=0)
 th5 = np.array(test_info_h5).sum(axis=0)
 th95 = np.array(test_info_h95).sum(axis=0)
-trait = [trace['psi'][:,s].mean() for s in range(S)]
+trait = [trace.posterior["psi"][:,:,s].mean().values for s in range(S)]
 for c in range(C):
     colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
     info = np.array([tm[c][s] for s in range(S)])
@@ -398,16 +384,13 @@ for c in range(C):
 plt.savefig("test_info.png", dpi=300)
 plt.close()
 
-
-
-#os.chdir("")
 from matplotlib.ticker import FormatStrFormatter
 
 # Reliability π=1/(1+1/I).
-delta = trace['delta']
-theta = np.array([trace['kappa'][:,i].T - trace['psi'].mean(axis=1)*trace['delta'][:,i] for i in range(I)])
+delta = trace.posterior["delta"].stack(samples=("chain", "draw")).values
+theta = np.array([trace.posterior["kappa"].stack(samples=("chain", "draw"))[i,:,:].values - trace.posterior["psi"].mean(dim="psi_dim_0").stack(samples=("chain", "draw")).values * trace.posterior["delta"].sel(delta_dim_0=i).stack(samples=("chain", "draw")).values for i in range(I)])
 p = np.array([[pordlog(theta[i,:,x]) for x in range(len(theta.T))] for i in range(I)])
-Info = np.array([[(delta[:,i]**2)*p[i,:,c]*(1-p[i,:,c]) for i in range(I)] for c in range(C)])
+Info = np.array([[(delta[i,:]**2)*p[i,:,c]*(1-p[i,:,c]) for i in range(I)] for c in range(C)])
 Info = Info.sum(axis=1)
 pi = np.array([1/(1+(1/Info[c])) for c in range(C)])
 colors = ['forestgreen', 'firebrick', 'steelblue', 'goldenrod', 'darkviolet']
@@ -433,9 +416,10 @@ for c in range(C):
 plt.title('Test Reliability per Score')
 plt.savefig('reliability_score_posteriors.png', dpi=300)
 
-rho = 1/(1 + ((trace['delta']**2).sum(axis=1))**-1)
-az.plot_posterior(rho, hdi_prob=0.9, kind='hist', color='m', round_to=3)
+rho = 1/(1 + ((trace.posterior["delta"]**2).sum(axis=1))**-1)
+az.plot_posterior(rho.values
+, hdi_prob=0.9, kind='hist', color='m', round_to=3)
 plt.title('Reliability ($ρ$)')
 plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+plt.xlim(.989, .995) 
 plt.savefig('reliability_posterior.png', dpi=300)
-"""
