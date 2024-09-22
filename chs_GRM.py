@@ -7,9 +7,6 @@ import arviz as az
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
-from utils import pordlog
-from plots import ppc_plot 
-
 
 plt.rcParams['font.family'] = "DeJavu Serif"
 plt.rcParams['font.serif'] = "Cambria Math"
