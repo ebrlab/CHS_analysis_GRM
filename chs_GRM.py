@@ -10,7 +10,6 @@ from tqdm import tqdm
 from utils import pordlog
 
 
-
 plt.rcParams['font.family'] = "DeJavu Serif"
 plt.rcParams['font.serif'] = "Cambria Math"
 plt.rcParams['font.size'] = 12
@@ -18,7 +17,7 @@ plt.rcParams['font.size'] = 12
 ############# CHS BSEM model analysis ###############
 
 data = pd.read_csv("https://raw.githubusercontent.com/ebrlab/CHS_analysis_GRM/refs/heads/main/data/chs_data_clean.csv")
-data = data.sort_values('item')
+#data = data.sort_values('item')
 scores = []
 for s in range(len(data)):
     if data.qdirection[s] == 'reversed':
@@ -217,7 +216,6 @@ for i in tqdm(range(I)):
     plt.gca().spines['right'].set_visible(False)
     plt.savefig(items[i]+'_prob.png', dpi=300)
     plt.close()
-
 
 ######### Item responses ################    
 os.chdir("../item_characteristics/")
